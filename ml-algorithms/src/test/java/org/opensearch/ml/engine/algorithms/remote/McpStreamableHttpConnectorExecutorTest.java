@@ -143,19 +143,6 @@ public class McpStreamableHttpConnectorExecutorTest extends MLStaticMockBase {
 
     }
 
-    // ========== TLS CONFIGURATION (issue #4971) ==========
-    // Before this wiring existed, TLS settings in client_config were parsed and then silently
-    // dropped for MCP connectors. These tests pin the settings actually reaching the JDK HTTP client
-    // that the MCP transport is built on.
-
-    /**
-     * Captures the customizeClient consumer the executor installs, applies it to a mock
-     * HttpClient.Builder, and returns that builder so the caller can assert on what was configured.
-     *
-     * <p>Also asserts the connect timeout is set on the <em>transport</em> builder. The MCP SDK runs
-     * the client customizer eagerly and then overwrites connectTimeout with its own 10s default in
-     * build(), so setting it on the client builder would silently have no effect.
-     */
     private HttpClient.Builder captureClientCustomization() {
         HttpClient.Builder clientBuilder = mock(HttpClient.Builder.class);
         HttpClientStreamableHttpTransport.Builder transportBuilder = mock(HttpClientStreamableHttpTransport.Builder.class);
@@ -180,7 +167,6 @@ public class McpStreamableHttpConnectorExecutorTest extends MLStaticMockBase {
             new McpStreamableHttpConnectorExecutor(mockConnector).getMcpToolSpecs();
         }
 
-        // The timeout must reach the transport builder, which is the only place the SDK honours it.
         verify(transportBuilder).connectTimeout(any());
         verify(clientBuilder, never()).connectTimeout(any());
 
@@ -192,7 +178,6 @@ public class McpStreamableHttpConnectorExecutorTest extends MLStaticMockBase {
 
     @Test
     public void getMcpToolSpecs_defaultConfig_doesNotOverrideSslContext() {
-        // No TLS options requested, so the JDK client keeps its default SSLContext untouched.
         HttpClient.Builder clientBuilder = captureClientCustomization();
 
         verify(clientBuilder).followRedirects(any());
@@ -209,12 +194,6 @@ public class McpStreamableHttpConnectorExecutorTest extends MLStaticMockBase {
         verify(clientBuilder).sslContext(any(SSLContext.class));
     }
 
-    /**
-     * The headline case for issue #4971: a valid mutual-TLS configuration must actually reach the
-     * transport. Without this, a regression that stopped building the SSLContext for mTLS - while
-     * leaving the skip-ssl path intact - would keep every other test green and silently restore the
-     * original no-op behaviour.
-     */
     @Test
     public void getMcpToolSpecs_validMutualTlsConfig_installsSslContext() throws IOException {
         Map<String, String> credentials = new HashMap<>();
@@ -239,11 +218,6 @@ public class McpStreamableHttpConnectorExecutorTest extends MLStaticMockBase {
         }
     }
 
-    /**
-     * A misconfigured certificate must surface its own actionable message. Previously the setting was
-     * ignored outright; it must not now be replaced by the generic "Unexpected error while getting
-     * MCP tools" wrapper, which would hide why the connector failed.
-     */
     @Test
     public void getMcpToolSpecs_invalidMutualTlsConfig_throwsActionableValidationException() {
         when(mockConnector.getDecryptedCredential()).thenReturn(new HashMap<>());
